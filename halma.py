@@ -98,7 +98,8 @@ class Halma:
         for dx, dy in [(-2, -2), (-2, 0), (-2, 2), (0, -2), (0, 2), (2, -2), (2, 0), (2, 2)]:
             midx, midy = x1 + dx // 2, y1 + dy // 2
             newx, newy = x1 + dx, y1 + dy
-            if 0 <= newx < self.size and 0 <= newy < self.size and self.board[midx][midy] != 0 and (newx, newy) not in visited:
+            if 0 <= newx < self.size and 0 <= newy < self.size and self.board[midx][midy] != 0 and (
+                    newx, newy) not in visited:
                 subpath = self.find_jump_path(newx, newy, x2, y2, visited)
                 if subpath is not None:
                     return [(newx, newy)] + subpath
@@ -107,7 +108,7 @@ class Halma:
 
     def move(self, start, end):
         if not self.is_valid_move(start, end):
-            return False
+            raise ValueError(f"Invalid move {start} -> {end}")
         x1, y1 = start
         x2, y2 = end
         self.board[x2][y2] = self.board[x1][y1]
@@ -115,8 +116,6 @@ class Halma:
         self.current_player = 3 - self.current_player
         self.winner = self.check_win()
         self.round += 1
-        if self.winner != 0:
-            print(f"Gracz {self.winner} wygrał!")
         return True
 
     def check_win(self):
@@ -131,15 +130,21 @@ class Halma:
         moves = []
         directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
         player = self.current_player
+        opposing_camp = get_opposing_camp(player)
 
         for i in range(self.size):
             for j in range(self.size):
                 if self.board[i][j] == player:
+                    # Check if the piece is in the opposing camp
+                    in_opposing_camp = (i, j) in opposing_camp
+
                     # Simple moves
                     for dx, dy in directions:
                         ni, nj = i + dx, j + dy
                         if 0 <= ni < self.size and 0 <= nj < self.size and self.board[ni][nj] == 0:
-                            moves.append(((i, j), (ni, nj)))
+                            # If in opposing camp, check the new position is also in the camp
+                            if not in_opposing_camp or (ni, nj) in opposing_camp:
+                                moves.append(((i, j), (ni, nj)))
 
                     # Recursive function to handle multiple jumps
                     visited = set()
@@ -149,46 +154,46 @@ class Halma:
 
     def find_jumps(self, si, sj, i, j, visited, path, moves):
         directions = [(-2, -2), (-2, 0), (-2, 2), (0, -2), (0, 2), (2, -2), (2, 0), (2, 2)]
-        has_jumped = False
+        opposing_camp = get_opposing_camp(self.current_player)
+        in_opposing_camp = (si, sj) in opposing_camp  # Check if starting position is in the opposing camp
 
         for dx, dy in directions:
             ni, nj = i + dx, j + dy
             mi, mj = i + dx // 2, j + dy // 2  # Middle piece to jump over
             if 0 <= ni < self.size and 0 <= nj < self.size and self.board[ni][nj] == 0 and self.board[mi][mj] != 0:
                 if (ni, nj) not in visited:  # Avoid cycles in jumping
-                    visited.add((ni, nj))
-                    path.append((ni, nj))
-                    moves.append((path[0], (ni, nj)))
-                    self.find_jumps(si, sj, ni, nj, visited, path, moves)
-                    path.pop()
-                    visited.remove((ni, nj))
-                    has_jumped = True
-
-        if not has_jumped and len(path) > 1:
-            moves.append((path[0], path[-1]))
+                    if not in_opposing_camp or (ni, nj) in opposing_camp:  # Check camp condition
+                        visited.add((ni, nj))
+                        path.append((ni, nj))
+                        moves.append((path[0], (ni, nj)))
+                        self.find_jumps(si, sj, ni, nj, visited, path, moves)  # Continue jumping
+                        path.pop()
+                        visited.remove((ni, nj))
 
     @staticmethod
     def distance_heuristic(board, player):
         size = len(board)
-        target_x, target_y = (0, 0) if player == 2 else (size - 1, size - 1)
+        target_camp = get_opposing_camp(player)
         total_distance = 0
         count = 0
         for i in range(size):
             for j in range(size):
                 if board[i][j] == player:
-                    total_distance += abs(target_x - i) + abs(target_y - j)
+                    distances_to_camp = [abs(x - i) + abs(y - j) for x, y in target_camp]
+                    min_distance = min(distances_to_camp)
+                    total_distance += min_distance
                     count += 1
 
         return -total_distance / count if count > 0 else float('inf')
 
     @staticmethod
     def clustering_heuristic(board, player):
-        target_x, _ = (0, 0) if player == 2 else (board.size - 1, board.size - 1)
+        target_x, _ = (0, 0) if player == 2 else (len(board) - 1, len(board) - 1)
         centroid_x, centroid_y = 0, 0
         count = 0
 
-        for i in range(board.size):
-            for j in range(board.size):
+        for i in range(len(board)):
+            for j in range(len(board)):
                 if board[i][j] == player:
                     centroid_x += i
                     centroid_y += j
@@ -201,8 +206,8 @@ class Halma:
         centroid_y /= count
         clustering_score = 0
 
-        for i in range(board.size):
-            for j in range(board.size):
+        for i in range(len(board)):
+            for j in range(len(board)):
                 if board[i][j] == player:
                     clustering_score += abs(centroid_x - i) + abs(centroid_y - j)
 
@@ -210,11 +215,11 @@ class Halma:
 
     @staticmethod
     def progress_heuristic(board, player):
-        mid_line = board.size // 2
+        mid_line = len(board) // 2
         progress_score = 0
 
-        for i in range(board.size):
-            for j in range(board.size):
+        for i in range(len(board)):
+            for j in range(len(board)):
                 if board[i][j] == player:
                     if player == 1 and i >= mid_line:
                         progress_score += 1
@@ -233,9 +238,9 @@ class Halma:
 
     def minimax(self, depth, alpha, beta, maximizing_player):
         if depth == 0 or self.winner != 0:
-            return self.evaluate(), None  # Return the evaluation and no move since it's a terminal node
+            return self.evaluate(), []  # Return the evaluation and no move since it's a terminal node
 
-        best_move = None
+        best_moves = []
 
         if maximizing_player:
             max_eval = float('-inf')
@@ -245,11 +250,14 @@ class Halma:
                 evaluation, _ = self.minimax(depth - 1, alpha, beta, False)
                 self.undo_move(move[0], move[1])
                 if evaluation > max_eval:
-                    max_eval, best_move = evaluation, move
+                    max_eval = evaluation
+                    best_moves = [move]
+                elif evaluation == max_eval:
+                    best_moves.append(move)
                 alpha = max(alpha, evaluation)
                 if beta <= alpha:
                     break
-            return max_eval, best_move
+            return max_eval, best_moves
         else:
             min_eval = float('inf')
             moves = self.generate_possible_moves()
@@ -258,35 +266,79 @@ class Halma:
                 evaluation, _ = self.minimax(depth - 1, alpha, beta, True)
                 self.undo_move(move[0], move[1])
                 if evaluation < min_eval:
-                    min_eval, best_move = evaluation, move
+                    min_eval = evaluation
+                    best_moves = [move]
+                elif evaluation == min_eval:
+                    best_moves.append(move)
                 beta = min(beta, evaluation)
                 if beta <= alpha:
                     break
-            return min_eval, best_move
+            return min_eval, best_moves
 
     def undo_move(self, start, end):
-        self.board[start[0]][start[1]] = self.board[end[0]][end[1]]
-        self.board[end[0]][end[1]] = 0
+        x1, y1 = start
+        x2, y2 = end
+        tmp = self.board[x1][y1]
+        self.board[x1][y1] = self.board[x2][y2]
+        self.board[x2][y2] = tmp
         self.current_player = 3 - self.current_player
         self.round -= 1
+        self.winner = 0
 
     def play_turn(self):
-        # If the game is already won, no more moves are needed
         if self.winner != 0:
             print(f"Game over! Player {self.winner} has won.")
             return
 
         if self.current_player == 1:
-            move_score, best_move = self.minimax(3, float('-inf'), float('inf'), True)
-            print(f"Best move: {best_move} with evaluation: {move_score}")
+            move_score, best_moves = self.minimax(4, float('-inf'), float('inf'), True)
+            best_move = random.choice(best_moves)
             self.move(best_move[0], best_move[1])
+            print(f"Best move: {best_move} with evaluation: {move_score}")
         else:
             moves = self.generate_possible_moves()
+            if not moves:
+                print(f"Player {self.current_player} has no moves left.")
+                return
             move = random.choice(moves)
             self.move(move[0], move[1])
         self.print_board()
 
-
     def run(self):
         while self.winner == 0:
             self.play_turn()
+        print(f"Game over! Player {self.winner} has won.")
+
+    def setup_almost_winning(self):
+        self.board = [[0] * self.size for _ in range(self.size)]
+
+        # Set almost all of Player 1's pieces in Player 2's camp
+        p1_almost_winning = [(15, 15), (15, 14), (15, 13), (15, 12), (14, 15),
+                             (14, 14), (14, 13), (14, 12), (13, 15), (13, 14),
+                             (13, 13), (12, 15), (12, 14), (11, 15)]
+
+        # Place remaining Player 1's pieces near Player 2's camp
+        p1_remaining = [(15, 11), (15, 10), (15, 9), (14, 11), (13, 12)]
+
+        # Set almost all of Player 2's pieces in Player 1's camp
+        p2_almost_winning = [(0, 0), (0, 1), (0, 2), (0, 3), (1, 0),
+                             (1, 1), (1, 2), (1, 3), (2, 0), (2, 1),
+                             (2, 2), (3, 0), (3, 1), (4, 0)]
+
+        # Place remaining Player 2's pieces near Player 1's camp
+        p2_remaining = [(0, 4), (0, 5), (0, 6), (1, 4), (2, 3)]
+
+        # Place almost winning positions on the board for Player 1
+        for x, y in p1_almost_winning + p1_remaining:
+            self.board[x][y] = 1
+
+        # Place almost winning positions on the board for Player 2
+        for x, y in p2_almost_winning + p2_remaining:
+            self.board[x][y] = 2
+
+
+if __name__ == '__main__':
+    game = Halma()
+    game.setup_almost_winning()
+    game.print_board()
+    game.run()

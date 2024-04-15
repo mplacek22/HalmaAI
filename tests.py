@@ -1,3 +1,0 @@
-from halma import Halma
-
-

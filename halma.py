@@ -203,7 +203,6 @@ def border_safety_index(board, player):
 def cluster_heuristic(board, player):
     group_reward = group_movement_reward(board, player)
     border_penalty = border_safety_index(board, player)
-    # Combine the scores; may need to adjust weights based on testing and performance
     return group_reward + border_penalty
 
 
@@ -211,7 +210,6 @@ def path_clearance_heuristic(board, player):
     size = len(board)
     path_clearance_score = 0
     target_camp = get_opposing_camp(player)
-    # Calculate distances to the nearest point in the target camp
     for i in range(size):
         for j in range(size):
             if board[i][j] == player:
@@ -225,7 +223,6 @@ def path_clearance_heuristic(board, player):
 
 
 def count_obstacles(board, start_i, start_j, target_camp, min_distance):
-    # Implement a simple approach to count obstacles in the direct path to the target
     obstacles = 0
     size = len(board)
     direction_i = 1 if target_camp[0][0] > start_i else -1
@@ -235,7 +232,7 @@ def count_obstacles(board, start_i, start_j, target_camp, min_distance):
         checking_i = start_i + step * direction_i
         checking_j = start_j + step * direction_j
         if 0 <= checking_i < size and 0 <= checking_j < size:
-            if board[checking_i][checking_j] != 0:  # Assuming 0 is an empty space
+            if board[checking_i][checking_j] != 0:
                 obstacles += 1
         else:
             break
@@ -246,7 +243,7 @@ def count_obstacles(board, start_i, start_j, target_camp, min_distance):
 def evaluate(board, current_player, recent_moves):
     move_penalty = sum(1 for move in recent_moves if move in recent_moves) * 100  # Penalize repeated moves
     # Combine heuristics with the penalty
-    heuristic_value = path_clearance_heuristic(board, current_player) - move_penalty
+    heuristic_value = distance_heuristic(board, current_player) - move_penalty
     winner = check_win(board)
     if winner == 1:
         return float('inf')  # player 1 wins

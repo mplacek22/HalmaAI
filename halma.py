@@ -109,8 +109,7 @@ def find_jumps(si, sj, i, j, visited, path, moves, current_player, size, board):
                     visited.remove((ni, nj))
 
 
-def apply_move(board, start, end, player):
-    """Applies the move on a given board without altering the main game state."""
+def apply_move(board, start, end):
     x1, y1 = start
     x2, y2 = end
     board[x2][y2] = board[x1][y1]
@@ -149,7 +148,7 @@ def distance_heuristic(board, player):
     target_camp = get_opposing_camp(player)
     total_distance = 0
     count = 0
-    reward_for_being_in_target = -10  # Define a reward for each piece in the target camp
+    reward_for_being_in_target = -100  # Define a reward for each piece in the target camp
 
     for i in range(size):
         for j in range(size):
@@ -167,53 +166,87 @@ def distance_heuristic(board, player):
     return -total_distance / count if count > 0 else float('inf')
 
 
+def group_movement_reward(board, player):
+    size = len(board)
+    grouped_score = 0
+    directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]  # Adjacent positions: up, down, left, right
 
-def clustering_heuristic(board, player):
-    target_x, _ = (0, 0) if player == 2 else (len(board) - 1, len(board) - 1)
-    centroid_x, centroid_y = 0, 0
-    count = 0
-
-    for i in range(len(board)):
-        for j in range(len(board)):
+    for i in range(size):
+        for j in range(size):
             if board[i][j] == player:
-                centroid_x += i
-                centroid_y += j
-                count += 1
+                # Check for adjacent allied pieces to increase group strength score
+                for di, dj in directions:
+                    ni, nj = i + di, j + dj
+                    if 0 <= ni < size and 0 <= nj < size and board[ni][nj] == player:
+                        grouped_score += 1  # Increment for each adjacent ally
 
-    if count == 0:
-        return float('-inf')
+    return grouped_score
 
-    centroid_x /= count
-    centroid_y /= count
-    clustering_score = 0
 
-    for i in range(len(board)):
-        for j in range(len(board)):
+def border_safety_index(board, player):
+    size = len(board)
+    border_risk_penalty = 0
+
+    # Check only the outermost rows and columns for player pieces
+    for i in range(size):
+        for j in [0, size - 1]:  # Check first and last column
             if board[i][j] == player:
-                clustering_score += abs(centroid_x - i) + abs(centroid_y - j)
+                border_risk_penalty += 1
+        for j in range(1, size - 1):
+            for i in [0, size - 1]:  # Check first and last row
+                if board[i][j] == player:
+                    border_risk_penalty += 1
 
-    return -clustering_score
+    return -border_risk_penalty  # Negative because it's a penalty
 
 
-def progress_heuristic(board, player):
-    mid_line = len(board) // 2
-    progress_score = 0
+def cluster_heuristic(board, player):
+    group_reward = group_movement_reward(board, player)
+    border_penalty = border_safety_index(board, player)
+    # Combine the scores; may need to adjust weights based on testing and performance
+    return group_reward + border_penalty
 
-    for i in range(len(board)):
-        for j in range(len(board)):
+
+def path_clearance_heuristic(board, player):
+    size = len(board)
+    path_clearance_score = 0
+    target_camp = get_opposing_camp(player)
+    # Calculate distances to the nearest point in the target camp
+    for i in range(size):
+        for j in range(size):
             if board[i][j] == player:
-                if player == 1 and i >= mid_line:
-                    progress_score += 1
-                elif player == 2 and i <= mid_line:
-                    progress_score += 1
+                distances = [abs(x - i) + abs(y - j) for x, y in target_camp]
+                min_distance = min(distances)
+                obstacles = count_obstacles(board, i, j, target_camp, min_distance)
+                # Subtract the number of obstacles from the path clearance score
+                path_clearance_score -= obstacles
 
-    return progress_score
+    return path_clearance_score
+
+
+def count_obstacles(board, start_i, start_j, target_camp, min_distance):
+    # Implement a simple approach to count obstacles in the direct path to the target
+    obstacles = 0
+    size = len(board)
+    direction_i = 1 if target_camp[0][0] > start_i else -1
+    direction_j = 1 if target_camp[0][1] > start_j else -1
+
+    for step in range(1, min_distance + 1):
+        checking_i = start_i + step * direction_i
+        checking_j = start_j + step * direction_j
+        if 0 <= checking_i < size and 0 <= checking_j < size:
+            if board[checking_i][checking_j] != 0:  # Assuming 0 is an empty space
+                obstacles += 1
+        else:
+            break
+
+    return obstacles
 
 
 def evaluate(board, current_player, recent_moves):
     move_penalty = sum(1 for move in recent_moves if move in recent_moves) * 100  # Penalize repeated moves
     # Combine heuristics with the penalty
-    heuristic_value = distance_heuristic(board, current_player) - move_penalty
+    heuristic_value = path_clearance_heuristic(board, current_player) - move_penalty
     winner = check_win(board)
     if winner == 1:
         return float('inf')  # player 1 wins
@@ -232,9 +265,10 @@ def minimax(board, depth, alpha, beta, player, size, recent_moves):
         max_eval = float('-inf')
         best_moves = []
         moves = generate_possible_moves(player, size, board)
+        random.shuffle(moves)
         for start, end in moves:
             temp_board = [row[:] for row in board]
-            apply_move(temp_board, start, end, player)
+            apply_move(temp_board, start, end)
             evaluation, _ = minimax(temp_board, depth - 1, alpha, beta, 2, size, recent_moves)
             if evaluation > max_eval:
                 max_eval = evaluation
@@ -251,7 +285,7 @@ def minimax(board, depth, alpha, beta, player, size, recent_moves):
         moves = generate_possible_moves(player, size, board)
         for start, end in moves:
             temp_board = [row[:] for row in board]
-            apply_move(temp_board, start, end, player)
+            apply_move(temp_board, start, end)
             evaluation, _ = minimax(temp_board, depth - 1, alpha, beta, 1, size, recent_moves)
             if evaluation < min_eval:
                 min_eval = evaluation
@@ -293,17 +327,8 @@ class Halma:
         print(f"Round: {self.round}")
         print()
 
-    def is_valid_move(self, start, end):
-        return is_valid_move(self.board, start, end, self.current_player)
-
-    def can_jump(self, start, end):
-        return can_jump(self.board, start, end, self.size)
-
-    def find_jump_path(self, x1, y1, x2, y2, visited=None):
-        return find_jump_path(self.board, x1, y1, x2, y2, self.size, visited)
-
     def move(self, start, end):
-        valid = self.is_valid_move(start, end)
+        valid = is_valid_move(self.board, start, end, self.current_player)
         if not valid:
             raise ValueError(f"Invalid move {start} -> {end}")
         if len(self.recent_moves) >= 4:
@@ -318,33 +343,19 @@ class Halma:
         self.round += 1
         return True
 
-    def generate_possible_moves(self):
-        return generate_possible_moves(self.current_player, self.size, self.board)
-
-    def find_jumps(self, si, sj, i, j, visited, path, moves):
-        find_jumps(si, sj, i, j, visited, path, moves, self.current_player, self.size, self.board)
-
-    def undo_move(self, start, end):
-        x1, y1 = start
-        x2, y2 = end
-        self.board[x1][y1] = self.board[x2][y2]
-        self.board[x2][y2] = 0
-        self.current_player = 3 - self.current_player
-        self.round -= 1
-        self.winner = 0
-
     def play_turn(self):
         if self.winner != 0:
             print(f"Game over! Player {self.winner} has won.")
             return
 
         if self.current_player == 1:
-            move_score, best_moves = minimax(self.board, 4, float('-inf'), float('inf'), self.current_player, self.size, self.recent_moves)
+            move_score, best_moves = minimax(self.board, 4, float('-inf'), float('inf'), self.current_player, self.size,
+                                             self.recent_moves)
             best_move = random.choice(best_moves)
             self.move(best_move[0], best_move[1])
             print(f"Best move: {best_move} with evaluation: {move_score}")
         else:
-            moves = self.generate_possible_moves()
+            moves = generate_possible_moves(self.current_player, self.size, self.board)
             if not moves:
                 print(f"Player {self.current_player} has no moves left.")
                 return
